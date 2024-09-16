@@ -17,5 +17,13 @@ bot.launch();
 console.log('Бот успешно запущен.');
 
 // Обработка graceful shutdown
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+console.log('Добавляем обработчики SIGINT и SIGTERM');
+process.once('SIGINT', () => {
+  console.log('SIGINT обработан');
+  bot.stop('SIGINT');
+});
+
+process.once('SIGTERM', () => {
+  console.log('SIGTERM обработан');
+  bot.stop('SIGTERM');
+});

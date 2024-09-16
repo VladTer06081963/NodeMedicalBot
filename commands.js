@@ -30,6 +30,16 @@ function setupCommands(bot) {
       }
       ctx.wizard.state.medicineData.timesPerDay = timesPerDay;
 
+       ctx.reply('Введите длительность курса в днях:');  // Новый шаг для длительности курса
+    return ctx.wizard.next();
+  },
+  (ctx) => {
+    const duration = parseInt(ctx.message.text);
+    if (isNaN(duration) || duration <= 0) {
+      ctx.reply('Длительность курса должна быть числом больше 0. Попробуйте снова.');
+      return;
+    }
+    ctx.wizard.state.medicineData.duration = duration;  // Сохраняем длительность курса
       // Добавляем лекарство в Notion
       addMedicineToNotion(ctx.wizard.state.medicineData)
         .then(() => {
