@@ -148,6 +148,15 @@ async function addMedicineToNotion(medicineData) {
         'Количество приемов в день': {
           number: timesPerDay,
         },
+
+         'Длительность курса': {
+          number: duration,  // Добавляем длительность курса в базу данных
+        },
+        'Статус': {
+          select: {
+            name: 'Активно',  // Устанавливаем статус по умолчанию как "Активно"
+          },
+        },
         ...doseProperties,
       },
     });
