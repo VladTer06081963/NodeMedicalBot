@@ -1,4 +1,3 @@
-// notion.js
 const { Client } = require('@notionhq/client');
 const moment = require('moment-timezone');
 const { NOTION_TOKEN, NOTION_DATABASE_ID, TIMEZONE } = require('./config');
@@ -12,37 +11,29 @@ async function getMedicinesFromNotion() {
     filter: {
       property: 'Статус',
       select: {
-        equals: 'Активно',  // Фильтруем только активные записи
+        equals: 'Активно',
       },
     },
   });
 
   return response.results.map((page) => {
     const timesPerDay = page.properties['Количество приемов в день'].number || 1;
-    let doseTimes = [];
-
-    for (let i = 1; i <= timesPerDay; i++) {
-      const doseTimeProperty = page.properties[`Приём ${i}`];
-      if (doseTimeProperty && doseTimeProperty.date && doseTimeProperty.date.start) {
-        const doseTime = moment.tz(doseTimeProperty.date.start, TIMEZONE).toDate();
-        doseTimes.push(doseTime);
-      } else {
-        console.log(`Свойство 'Приём ${i}' отсутствует или некорректно для записи с ID: ${page.id}`);
-      }
-    }
+    const chatId = page.properties['chatId']?.rich_text?.[0]?.text?.content || 'undefined';
+    const medicineName = page.properties['Название лекарства'].title?.[0]?.text?.content || 'Не указано';
 
     return {
       id: page.id,
-      medicineName: page.properties['Название лекарства'].title[0]?.text.content || 'Не указано',
-      dosage: page.properties['Дозировка'].rich_text[0]?.text.content || 'Дозировка не указана',
-      timesPerDay: timesPerDay,
-      doseTimes: doseTimes,
+      medicineName,
+      dosage: page.properties['Дозировка'].rich_text?.[0]?.text?.content || 'Дозировка не указана',
+      timesPerDay,
+      duration: page.properties['Длительность курса'].number || 0,
+      chatId,
     };
   });
 }
 
-// Функция архивирования записи в Notion
 
+// Функция архивирования записи в Notion
 async function archiveMedicineInNotion(medicineId) {
   try {
     await notion.pages.update({
@@ -61,8 +52,7 @@ async function archiveMedicineInNotion(medicineId) {
   }
 }
 
-//Автоматическая проверка и архивирование записей
-
+// Автоматическая проверка и архивирование записей
 async function archiveOldMedicines() {
   const response = await notion.databases.query({
     database_id: NOTION_DATABASE_ID,
@@ -102,12 +92,13 @@ async function archiveOldMedicines() {
 
 // Функция для добавления лекарства в Notion
 async function addMedicineToNotion(medicineData) {
-  const { name, dosage, timesPerDay, duration } = medicineData;
+  const { name, dosage, timesPerDay, duration, chatId } = medicineData;
 
-  if (!name || !dosage || !timesPerDay || isNaN(timesPerDay) || !duration || isNaN(duration)) {
+  if (!name || !dosage || !timesPerDay || isNaN(timesPerDay) || !duration || isNaN(duration) || !chatId) {
     throw new Error('Недостаточно данных для добавления лекарства. Проверьте, что все поля заполнены корректно.');
   }
-
+// Преобразуем chatId в строку , если это необходимо
+  const chatIdStr = String(chatId);
   // Создаём свойства для полей "Приём 1", "Приём 2", и т.д.
   const doseProperties = {};
   const now = moment().tz(TIMEZONE).startOf('day');
@@ -148,8 +139,7 @@ async function addMedicineToNotion(medicineData) {
         'Количество приемов в день': {
           number: timesPerDay,
         },
-
-         'Длительность курса': {
+        'Длительность курса': {
           number: duration,  // Добавляем длительность курса в базу данных
         },
         'Статус': {
@@ -157,9 +147,20 @@ async function addMedicineToNotion(medicineData) {
             name: 'Активно',  // Устанавливаем статус по умолчанию как "Активно"
           },
         },
+        'chatId': {
+  rich_text: [
+    {
+      text: {
+        // content: String(chatId),  // Преобразуем chatId в строку
+  content: chatIdStr,  // Сохраняем chatId как строку
+      },  
+    },
+  ],
+},
         ...doseProperties,
       },
     });
+    console.log(`Лекарство ${name} добавлено в базу данных с chatId: ${chatId}`);
   } catch (error) {
     console.error('Ошибка при добавлении лекарства в Notion:', error);
     throw error;
@@ -169,6 +170,6 @@ async function addMedicineToNotion(medicineData) {
 module.exports = {
   getMedicinesFromNotion,
   addMedicineToNotion,
-   archiveOldMedicines,  // Экспортируем функцию архивирования устаревших записей
+  archiveOldMedicines,  // Экспортируем функцию архивирования устаревших записей
   archiveMedicineInNotion,  // Экспортируем функцию для архивирования отдельной записи
 };

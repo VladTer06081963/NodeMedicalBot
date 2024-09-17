@@ -1,7 +1,7 @@
-// commands.js
 const { Markup, Scenes, session } = require('telegraf');
-const scheduleReminders = require('./scheduler');
+const { scheduleReminders } = require('./scheduler');  // Правильный импорт
 const { addMedicineToNotion } = require('./notion');
+const { getMedicinesForToday } = require('./scheduler');
 
 function setupCommands(bot) {
   // Создаём сцену для пошагового ввода данных о лекарстве
@@ -9,7 +9,8 @@ function setupCommands(bot) {
     'add_medicine',
     (ctx) => {
       ctx.reply('Введите название лекарства:');
-      ctx.wizard.state.medicineData = {};
+      // ctx.wizard.state.medicineData = {};
+      ctx.wizard.state.medicineData = { chatId: ctx.scene.state.chatId };  // Сохраняем chatId в данные лекарства
       return ctx.wizard.next();
     },
     (ctx) => {
@@ -30,16 +31,16 @@ function setupCommands(bot) {
       }
       ctx.wizard.state.medicineData.timesPerDay = timesPerDay;
 
-       ctx.reply('Введите длительность курса в днях:');  // Новый шаг для длительности курса
-    return ctx.wizard.next();
-  },
-  (ctx) => {
-    const duration = parseInt(ctx.message.text);
-    if (isNaN(duration) || duration <= 0) {
-      ctx.reply('Длительность курса должна быть числом больше 0. Попробуйте снова.');
-      return;
-    }
-    ctx.wizard.state.medicineData.duration = duration;  // Сохраняем длительность курса
+      ctx.reply('Введите длительность курса в днях:');
+      return ctx.wizard.next();
+    },
+    (ctx) => {
+      const duration = parseInt(ctx.message.text);
+      if (isNaN(duration) || duration <= 0) {
+        ctx.reply('Длительность курса должна быть числом больше 0. Попробуйте снова.');
+        return;
+      }
+      ctx.wizard.state.medicineData.duration = duration;  // Сохраняем длительность курса
       // Добавляем лекарство в Notion
       addMedicineToNotion(ctx.wizard.state.medicineData)
         .then(() => {
@@ -63,13 +64,53 @@ function setupCommands(bot) {
 
   // Команда /start
   bot.start((ctx) => {
-    ctx.reply('Бот запущен. Вы можете добавить новое лекарство командой /add.');
-    scheduleReminders(ctx.chat.id);
+    const userChatId = ctx.chat.id;  // Получаем chatId пользователя
+    ctx.reply('Бот запущен. Добавить новое лекарство командой - /add. Получить рецепт на текущий день - /today. Ваш chatId: ' + userChatId);
+    scheduleReminders(userChatId);  // Планируем напоминания
+  });
+
+  // Команда /myid
+  bot.command('myid', (ctx) => {
+    ctx.reply(`Ваш ID: ${ctx.from.id}`);
   });
 
   // Команда /add
+  // bot.command('add', (ctx) => {
+  //   ctx.scene.enter('add_medicine');
+  // });
+
   bot.command('add', (ctx) => {
-    ctx.scene.enter('add_medicine');
+  const chatId = ctx.chat.id;  // Получаем chatId пользователя
+  ctx.scene.enter('add_medicine', { chatId });  // Передаем chatId в сцену для добавления лекарства
+});
+
+  // Команда /site
+  bot.command('site', (ctx) => {
+    ctx.reply('Привет! Нажмите на кнопку ниже, чтобы открыть минибраузер.', 
+      Markup.inlineKeyboard([
+        [Markup.button.webApp('Открыть минибраузер', 'https://carnelian-handbell-bf9.notion.site/Nodemedicalbot-1021a615d4a2807c92a7c76eae359297')]
+      ])
+    );
+  });
+
+  // Команда /today
+  bot.command('today', async (ctx) => {
+    console.log('Команда /today вызвана');
+    try {
+      const todayMedicines = await getMedicinesForToday();
+      if (todayMedicines.length === 0) {
+        ctx.reply('Сегодня нет запланированных приемов лекарств.');
+      } else {
+        let message = 'Лекарства, которые нужно принять сегодня:\n';
+        todayMedicines.forEach((medicine) => {
+          message += `${medicine.medicineName} (${medicine.dosage}) в следующие часы: ${medicine.timesForToday.join(', ')}\n`;
+        });
+        ctx.reply(message);
+      }
+    } catch (error) {
+      console.error('Ошибка при получении лекарств на сегодня:', error);
+      ctx.reply('Произошла ошибка при получении списка лекарств.');
+    }
   });
 
   // Обработка нажатия кнопки "Принял"
@@ -77,8 +118,7 @@ function setupCommands(bot) {
     const medicineId = ctx.match[1];
     const doseIndex = ctx.match[2];
     ctx.reply('Спасибо! Ваш приём лекарства зарегистрирован.');
-
-    // Здесь можно добавить логику для обновления записи в Notion
+    // Можно добавить логику для обновления записи в Notion
   });
 }
 
