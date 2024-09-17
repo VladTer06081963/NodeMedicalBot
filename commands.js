@@ -24,11 +24,20 @@ function setupCommands(bot) {
       return ctx.wizard.next();
     },
     (ctx) => {
-      const timesPerDay = parseInt(ctx.message.text);
-      if (isNaN(timesPerDay) || timesPerDay <= 0) {
-        ctx.reply('Количество приёмов должно быть числом больше 0. Попробуйте снова.');
-        return;
-      }
+    //   const timesPerDay = parseInt(ctx.message.text);
+    //   if (isNaN(timesPerDay) || timesPerDay <= 0) {
+    //     ctx.reply('Количество приёмов должно быть числом больше 0. Попробуйте снова.');
+    //     return;
+    //   }
+
+const timesPerDay = parseInt(ctx.message.text);
+
+if (isNaN(timesPerDay) || timesPerDay <= 0 || timesPerDay >= 4) {
+  ctx.reply('Количество приёмов должно быть числом больше 0 и меньше 4. Попробуйте снова.');
+  return;
+}
+
+
       ctx.wizard.state.medicineData.timesPerDay = timesPerDay;
 
       ctx.reply('Введите длительность курса в днях:');
