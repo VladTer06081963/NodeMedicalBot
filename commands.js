@@ -109,11 +109,31 @@ const addMedicineScene = new Scenes.WizardScene(
   bot.use(stage.middleware());
 
   // Команда /start
-  bot.start((ctx) => {
+  // bot.start((ctx) => {
+  //   const userChatId = ctx.chat.id;  // Получаем chatId пользователя
+  //   ctx.reply('Бот запущен. Добавить новое лекарство командой - /add. Получить рецепт на текущий день - /today. Ваш chatId: ' + userChatId);
+  //   scheduleReminders(userChatId);  // Планируем напоминания
+  // });
+
+  bot.start(async (ctx) => {
     const userChatId = ctx.chat.id;  // Получаем chatId пользователя
+  const medicines = await getMedicinesFromNotion();
+  if (medicines.length > 0) {
+    ctx.reply('Вот ваш список лекарств:');
     ctx.reply('Бот запущен. Добавить новое лекарство командой - /add. Получить рецепт на текущий день - /today. Ваш chatId: ' + userChatId);
-    scheduleReminders(userChatId);  // Планируем напоминания
-  });
+    medicines.forEach(medicine => {
+      ctx.reply(
+        `Напоминание: Пора принять ${medicine.medicineName} (${medicine.dosage}) в ${medicine.nextReminderTime.toLocaleTimeString()}.`,
+        Markup.inlineKeyboard([
+          Markup.button.callback('Принял', `accept_medicine_${medicine.id}`)
+        ])
+      );
+    });
+  } else {
+    ctx.reply('На данный момент лекарства не найдены.');
+  }
+});
+
 
   // Команда /myid
   bot.command('myid', (ctx) => {
