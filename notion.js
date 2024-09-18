@@ -11,15 +11,37 @@ async function getMedicinesFromNotion() {
     filter: {
       property: 'Статус',
       select: {
-        equals: 'Активно',
+        equals: 'Активно',  // Фильтруем только активные записи
       },
     },
   });
+
+  // Логируем количество найденных записей
+  console.log(`Найдено активных лекарств: ${response.results.length}`);
 
   return response.results.map((page) => {
     const timesPerDay = page.properties['Количество приемов в день'].number || 1;
     const chatId = page.properties['chatId']?.rich_text?.[0]?.text?.content || 'undefined';
     const medicineName = page.properties['Название лекарства'].title?.[0]?.text?.content || 'Не указано';
+
+    // Логируем информацию о текущем лекарстве
+    console.log(`Обрабатываем лекарство: ${medicineName}, chatId: ${chatId}`);
+
+    // Собираем информацию о времени приема
+    let doseTimes = [];
+    
+    if (page.properties['Завтрак']?.date?.start) {
+      doseTimes.push(moment(page.properties['Завтрак'].date.start).tz(TIMEZONE).toDate());
+    }
+    if (page.properties['Обед']?.date?.start) {
+      doseTimes.push(moment(page.properties['Обед'].date.start).tz(TIMEZONE).toDate());
+    }
+    if (page.properties['Ужин']?.date?.start) {
+      doseTimes.push(moment(page.properties['Ужин'].date.start).tz(TIMEZONE).toDate());
+    }
+
+    // Логируем время приема для лекарства
+    console.log(`Время приема для лекарства ${medicineName}: ${doseTimes.map(dt => moment(dt).format('HH:mm'))}`);
 
     return {
       id: page.id,
@@ -28,6 +50,7 @@ async function getMedicinesFromNotion() {
       timesPerDay,
       duration: page.properties['Длительность курса'].number || 0,
       chatId,
+      doseTimes  // Время приема (завтрак, обед, ужин)
     };
   });
 }
@@ -91,25 +114,50 @@ async function archiveOldMedicines() {
 }
 
 // Функция для добавления лекарства в Notion
-async function addMedicineToNotion(medicineData) {
-  const { name, dosage, timesPerDay, duration, chatId } = medicineData;
+// const moment = require('moment-timezone');  // Подключаем moment-timezone
 
-  if (!name || !dosage || !timesPerDay || isNaN(timesPerDay) || !duration || isNaN(duration) || !chatId) {
+async function addMedicineToNotion(medicineData) {
+  const { name, dosage, duration, chatId, breakfastTime, lunchTime, dinnerTime } = medicineData;
+
+  if (!name || !dosage || !duration || isNaN(duration) || !chatId) {
     throw new Error('Недостаточно данных для добавления лекарства. Проверьте, что все поля заполнены корректно.');
   }
-// Преобразуем chatId в строку , если это необходимо
-  const chatIdStr = String(chatId);
-  // Создаём свойства для полей "Приём 1", "Приём 2", и т.д.
-  const doseProperties = {};
-  const now = moment().tz(TIMEZONE).startOf('day');
 
-  for (let i = 1; i <= timesPerDay; i++) {
-    // Расчёт времени приёма
-    const interval = (24 / timesPerDay) * i;
-    const doseTime = now.clone().add(interval, 'hours');
-    doseProperties[`Приём ${i}`] = {
+  const TIMEZONE = 'Europe/Kiev';  // Установите ваш часовой пояс
+  const now = moment().tz(TIMEZONE);  // Текущая дата и время
+
+  const dateProperties = {};
+
+  // Если текущее время после полуночи, установим время приема на следующий день
+  const addTimeForNextDay = (baseTime) => {
+    const baseMoment = moment.tz(baseTime, 'HH:mm', TIMEZONE);
+    if (now.isAfter(baseMoment)) {
+      baseMoment.add(1, 'day');  // Добавляем день, если текущее время уже прошло
+    }
+    return baseMoment.toISOString();  // Возвращаем ISO строку для сохранения
+  };
+
+  // Заполняем время для приема
+  if (breakfastTime) {
+    dateProperties['Завтрак'] = {
       date: {
-        start: doseTime.toISOString(),
+        start: addTimeForNextDay('09:00'),  // Завтрак в 09:00
+      },
+    };
+  }
+
+  if (lunchTime) {
+    dateProperties['Обед'] = {
+      date: {
+        start: addTimeForNextDay('13:00'),  // Обед в 13:00
+      },
+    };
+  }
+
+  if (dinnerTime) {
+    dateProperties['Ужин'] = {
+      date: {
+        start: addTimeForNextDay('19:00'),  // Ужин в 19:00
       },
     };
   }
@@ -136,36 +184,33 @@ async function addMedicineToNotion(medicineData) {
             },
           ],
         },
-        'Количество приемов в день': {
-          number: timesPerDay,
-        },
         'Длительность курса': {
-          number: duration,  // Добавляем длительность курса в базу данных
+          number: duration,
+        },
+        'chatId': {
+          rich_text: [
+            {
+              text: {
+                content: String(chatId),
+              },
+            },
+          ],
         },
         'Статус': {
           select: {
             name: 'Активно',  // Устанавливаем статус по умолчанию как "Активно"
           },
         },
-        'chatId': {
-  rich_text: [
-    {
-      text: {
-        // content: String(chatId),  // Преобразуем chatId в строку
-  content: chatIdStr,  // Сохраняем chatId как строку
-      },  
-    },
-  ],
-},
-        ...doseProperties,
+        ...dateProperties,  // Время приема (завтрак, обед, ужин)
       },
     });
-    console.log(`Лекарство ${name} добавлено в базу данных с chatId: ${chatId}`);
+    console.log(`Лекарство ${name} добавлено со статусом "Активно" и времени приема.`);
   } catch (error) {
     console.error('Ошибка при добавлении лекарства в Notion:', error);
     throw error;
   }
 }
+
 
 module.exports = {
   getMedicinesFromNotion,

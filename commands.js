@@ -5,66 +5,103 @@ const { getMedicinesForToday } = require('./scheduler');
 
 function setupCommands(bot) {
   // Создаём сцену для пошагового ввода данных о лекарстве
-  const addMedicineScene = new Scenes.WizardScene(
-    'add_medicine',
-    (ctx) => {
-      ctx.reply('Введите название лекарства:');
-      // ctx.wizard.state.medicineData = {};
-      ctx.wizard.state.medicineData = { chatId: ctx.scene.state.chatId };  // Сохраняем chatId в данные лекарства
-      return ctx.wizard.next();
-    },
-    (ctx) => {
-      ctx.wizard.state.medicineData.name = ctx.message.text;
-      ctx.reply('Введите дозировку (например, "500 мг"):');
-      return ctx.wizard.next();
-    },
-    (ctx) => {
-      ctx.wizard.state.medicineData.dosage = ctx.message.text;
-      ctx.reply('Введите количество приёмов в день (число):');
-      return ctx.wizard.next();
-    },
-    (ctx) => {
-    //   const timesPerDay = parseInt(ctx.message.text);
-    //   if (isNaN(timesPerDay) || timesPerDay <= 0) {
-    //     ctx.reply('Количество приёмов должно быть числом больше 0. Попробуйте снова.');
-    //     return;
-    //   }
-
-const timesPerDay = parseInt(ctx.message.text);
-
-if (isNaN(timesPerDay) || timesPerDay <= 0 || timesPerDay >= 4) {
-  ctx.reply('Количество приёмов должно быть числом больше 0 и меньше 4. Попробуйте снова.');
-  return;
-}
-
-
-      ctx.wizard.state.medicineData.timesPerDay = timesPerDay;
-
-      ctx.reply('Введите длительность курса в днях:');
-      return ctx.wizard.next();
-    },
-    (ctx) => {
-      const duration = parseInt(ctx.message.text);
-      if (isNaN(duration) || duration <= 0) {
-        ctx.reply('Длительность курса должна быть числом больше 0. Попробуйте снова.');
-        return;
-      }
-      ctx.wizard.state.medicineData.duration = duration;  // Сохраняем длительность курса
-      // Добавляем лекарство в Notion
-      addMedicineToNotion(ctx.wizard.state.medicineData)
-        .then(() => {
-          ctx.reply('Лекарство добавлено!');
-          // Планируем напоминания
-          scheduleReminders(ctx.chat.id);
-          return ctx.scene.leave();
-        })
-        .catch((err) => {
-          console.error('Ошибка при добавлении лекарства:', err);
-          ctx.reply('Произошла ошибка при добавлении лекарства. Попробуйте снова.');
-          return ctx.scene.leave();
-        });
+const addMedicineScene = new Scenes.WizardScene(
+  'add_medicine',
+  (ctx) => {
+    ctx.reply('Введите название лекарства:');
+    ctx.wizard.state.medicineData = { chatId: ctx.scene.state.chatId };
+    return ctx.wizard.next();
+  },
+  (ctx) => {
+    ctx.wizard.state.medicineData.name = ctx.message.text;
+    ctx.reply('Введите дозировку (например, "500 мг"):');
+    return ctx.wizard.next();
+  },
+  (ctx) => {
+    ctx.wizard.state.medicineData.dosage = ctx.message.text;
+    ctx.reply('Введите длительность курса в днях:');
+    return ctx.wizard.next();
+  },
+  (ctx) => {
+    const duration = parseInt(ctx.message.text);
+    if (isNaN(duration) || duration <= 0) {
+      ctx.reply('Длительность курса должна быть числом больше 0. Попробуйте снова.');
+      return;
     }
-  );
+    ctx.wizard.state.medicineData.duration = duration;
+
+    // Предлагаем выбрать приемы пищи
+    ctx.reply('Выберите приемы пищи для приема лекарства:',
+      Markup.inlineKeyboard([
+        [Markup.button.callback('Завтрак', 'breakfast'), Markup.button.callback('Обед', 'lunch'), Markup.button.callback('Ужин', 'dinner')]
+      ])
+    );
+    return ctx.wizard.next();
+  },
+  (ctx) => {
+    // Пользователь нажимает на кнопку "Завтрак", "Обед" или "Ужин"
+    const chosenMeal = ctx.callbackQuery.data;
+
+    // Устанавливаем время для каждого приема
+    if (!ctx.wizard.state.medicineData.times) {
+      ctx.wizard.state.medicineData.times = {};  // Храним выбранные приемы и их время
+    }
+
+    switch (chosenMeal) {
+      case 'breakfast':
+        ctx.wizard.state.medicineData.times.breakfastTime = '09:00';  // Время завтрака
+        break;
+      case 'lunch':
+        ctx.wizard.state.medicineData.times.lunchTime = '13:00';  // Время обеда
+        break;
+      case 'dinner':
+        ctx.wizard.state.medicineData.times.dinnerTime = '19:00';  // Время ужина
+        break;
+    }
+
+    // Спрашиваем пользователя, хочет ли он выбрать еще один прием пищи
+    ctx.reply('Хотите выбрать еще один прием?',
+      Markup.inlineKeyboard([
+        [Markup.button.callback('Да', 'yes'), Markup.button.callback('Нет', 'no')]
+      ])
+    );
+    return ctx.wizard.next();
+  },
+  (ctx) => {
+    const addMore = ctx.callbackQuery.data;
+
+    if (addMore === 'yes') {
+      // Если пользователь хочет добавить еще один прием, снова показываем кнопки выбора
+      ctx.reply('Выберите прием:',
+        Markup.inlineKeyboard([
+          [Markup.button.callback('Завтрак', 'breakfast'), Markup.button.callback('Обед', 'lunch'), Markup.button.callback('Ужин', 'dinner')]
+        ])
+      );
+      return ctx.wizard.back();
+    } else {
+      // Если пользователь не хочет добавлять больше приемов, добавляем данные в Notion
+      const { breakfastTime, lunchTime, dinnerTime } = ctx.wizard.state.medicineData.times;
+
+      addMedicineToNotion({
+        ...ctx.wizard.state.medicineData,
+        breakfastTime,
+        lunchTime,
+        dinnerTime
+      })
+      .then(() => {
+        ctx.reply('Лекарство добавлено!');
+        return ctx.scene.leave();
+      })
+      .catch((err) => {
+        console.error('Ошибка при добавлении лекарства:', err);
+        ctx.reply('Произошла ошибка при добавлении лекарства. Попробуйте снова.');
+        return ctx.scene.leave();
+      });
+    }
+  }
+);
+
+
 
   const stage = new Scenes.Stage([addMedicineScene]);
 

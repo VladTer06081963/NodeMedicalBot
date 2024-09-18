@@ -3,7 +3,6 @@ const moment = require('moment-timezone');
 const { TIMEZONE } = require('./config');
 const { getMedicinesFromNotion, archiveOldMedicines } = require('./notion');
 const bot = require('./bot');
-// const { bot, telegram } = require('./bot')
 const { Markup } = require('telegraf');
 
 // Функция для планирования курса лечения с регулярными напоминаниями
@@ -14,19 +13,47 @@ function scheduleCourseReminders(userChatId, medicineName, dosage, timesPerDay, 
   for (let day = 0; day < duration; day++) {
     // Для каждого дня планируем количество приемов
     for (let dose = 1; dose <= timesPerDay; dose++) {
-      const doseTime = new Date(now);  // Копируем текущую дату
-      doseTime.setDate(now.getDate() + day);  // Переходим на нужный день
-      doseTime.setHours(8 + (dose - 1) * (24 / timesPerDay));  // Распределяем приемы на день
+      let doseTime;
 
-      // Логирование для отладки
-      console.log(`Планирование напоминания для ${medicineName}, прием ${dose}, на ${doseTime}`);
+      // Используем фиксированные времена для приема (Завтрак, Обед, Ужин)
+      switch (dose) {
+        case 1:
+          doseTime = '09:00';  // Завтрак
+          break;
+        case 2:
+          doseTime = '13:00';  // Обед
+          break;
+        case 3:
+          doseTime = '19:00';  // Ужин
+          break;
+        default:
+          console.log(`Некорректное значение приема: ${dose}`);
+          continue;
+      }
+
+      console.log(`Планирование напоминания для ${medicineName}, прием ${dose}, время: ${doseTime}`);
+
+      if (typeof doseTime !== 'string') {
+        console.error(`Ожидалась строка для времени приема, но получено: ${typeof doseTime}`);
+        continue;
+      }
+
+      // Преобразуем строку в дату
+      const [hour, minute] = doseTime.split(':');
+      const reminderTime = new Date(now);
+      reminderTime.setDate(now.getDate() + day); // Дата через day дней
+      reminderTime.setHours(parseInt(hour), parseInt(minute), 0, 0);
+
+      // Проверка на прошедшее время, если напоминание на текущий день, то сдвигаем его на завтра
+      if (reminderTime < new Date()) {
+        reminderTime.setDate(reminderTime.getDate() + 1); // Сдвигаем на следующий день
+      }
 
       // Планируем напоминание для конкретного приема
-      schedule.scheduleJob(doseTime, () => {
-        console.log(bot);
+      schedule.scheduleJob(reminderTime, () => {
         bot.telegram.sendMessage(
           userChatId,
-          `Напоминание: Пора принять ${medicineName} (${dosage}) в ${moment(doseTime).format('HH:mm')}.`,
+          `Напоминание: Пора принять ${medicineName} (${dosage}) в ${moment(reminderTime).format('HH:mm')}.`,
           {
             reply_markup: Markup.inlineKeyboard([
               Markup.button.callback('Принял', `accept_medicine_${medicineName}_${dose}`),
@@ -49,21 +76,20 @@ async function scheduleReminders(userChatId) {
     }
 
     medicines.forEach((medicine) => {
-      // Используем обновленную структуру данных
-      const chatId = medicine.chatId;
+      const chatId = medicine.chatId;  // Должно быть правильное поле chatId
       if (!chatId) {
         console.log(`У лекарства ${medicine.medicineName} отсутствует chatId.`);
         return;
       }
-
+      
       // Если у лекарства есть chatId, планируем напоминания
       if (medicine.timesPerDay && medicine.duration) {
         scheduleCourseReminders(
           chatId,              // Идентификатор чата пользователя
-          medicine.medicineName,    // Название лекарства
-          medicine.dosage,          // Дозировка
-          medicine.timesPerDay,     // Количество приемов в день
-          medicine.duration         // Длительность курса (в днях)
+          medicine.medicineName,
+          medicine.dosage,
+          medicine.timesPerDay,
+          medicine.duration
         );
       } else {
         console.log(`Недостаточно данных для планирования напоминаний для лекарства: ${medicine.medicineName}`);
@@ -74,37 +100,39 @@ async function scheduleReminders(userChatId) {
   }
 }
 
-
 // Функция для получения лекарств на сегодня
 async function getMedicinesForToday() {
   const medicines = await getMedicinesFromNotion();  // Получаем все лекарства из Notion
   const todayMedicines = [];
 
-  const today = moment().tz(TIMEZONE).startOf('day');  // Сегодняшний день
-  const tomorrow = today.clone().add(1, 'days');  // Завтра для ограничения времени
+  const today = moment().tz(TIMEZONE).startOf('day');  // Текущая дата с началом дня
+  const tomorrow = today.clone().add(1, 'days').startOf('day');  // Завтрашний день для ограничения
+
+  console.log(`Проверяем лекарства на сегодня: ${today.format('YYYY-MM-DD')}`);
 
   // Фильтруем лекарства, которые нужно принять сегодня
   medicines.forEach((medicine) => {
-    // Проверяем, что у лекарства есть поле doseTimes и оно является массивом
-    if (Array.isArray(medicine.doseTimes)) {
-      const timesForToday = medicine.doseTimes.filter(doseTime => {
-        const time = moment(doseTime).tz(TIMEZONE);
-        return time.isSameOrAfter(today) && time.isBefore(tomorrow);  // Лекарства только на сегодня
-      });
+    if (!medicine.doseTimes || !Array.isArray(medicine.doseTimes)) {
+      console.error(`У лекарства ${medicine.medicineName} отсутствует поле doseTimes или оно не является массивом.`);
+      return;  // Пропускаем лекарство, если нет информации о времени приема
+    }
 
-      if (timesForToday.length > 0) {
-        todayMedicines.push({
-          medicineName: medicine.medicineName,
-          dosage: medicine.dosage,
-          timesForToday: timesForToday.map(time => moment(time).format('HH:mm')),  // Форматируем время
-        });
-      }
-    } else {
-      console.log(`Поле doseTimes отсутствует или не является массивом для лекарства: ${medicine.medicineName}`);
+    const timesForToday = medicine.doseTimes.filter(doseTime => {
+      const time = moment(doseTime).tz(TIMEZONE);
+      console.log(`Проверяем время: ${time.format('YYYY-MM-DD HH:mm')}`);  // Для отладки
+      return time.isSameOrAfter(today) && time.isBefore(tomorrow);  // Лекарства только на сегодня
+    });
+
+    if (timesForToday.length > 0) {
+      todayMedicines.push({
+        medicineName: medicine.medicineName,
+        dosage: medicine.dosage,
+        timesForToday: timesForToday.map(time => moment(time).format('HH:mm')),  // Форматируем время
+      });
     }
   });
 
-
+  console.log(`Найдено лекарств на сегодня: ${todayMedicines.length}`);
   return todayMedicines;
 }
 
