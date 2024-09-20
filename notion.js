@@ -5,7 +5,7 @@ const { NOTION_TOKEN, NOTION_DATABASE_ID, TIMEZONE } = require('./config');
 const notion = new Client({ auth: NOTION_TOKEN });
 
 // Функция для получения данных о лекарствах из Notion (только активных записей)
-async function getMedicinesFromNotion() {
+async function getMedicinesFromNotion(userChatId) {
   const response = await notion.databases.query({
     database_id: NOTION_DATABASE_ID,
     filter: {
@@ -54,7 +54,6 @@ async function getMedicinesFromNotion() {
     };
   });
 }
-
 
 // Функция архивирования записи в Notion
 async function archiveMedicineInNotion(medicineId) {
@@ -114,8 +113,6 @@ async function archiveOldMedicines() {
 }
 
 // Функция для добавления лекарства в Notion
-// const moment = require('moment-timezone');  // Подключаем moment-timezone
-
 async function addMedicineToNotion(medicineData) {
   const { name, dosage, duration, chatId, breakfastTime, lunchTime, dinnerTime } = medicineData;
 
@@ -130,7 +127,8 @@ async function addMedicineToNotion(medicineData) {
 
   // Если текущее время после полуночи, установим время приема на следующий день
   const addTimeForNextDay = (baseTime) => {
-    const baseMoment = moment.tz(baseTime, 'HH:mm', TIMEZONE);
+    // Добавляем текущую дату к времени приема
+    const baseMoment = moment.tz(`${moment().format('YYYY-MM-DD')} ${baseTime}`, 'YYYY-MM-DD HH:mm', TIMEZONE);
     if (now.isAfter(baseMoment)) {
       baseMoment.add(1, 'day');  // Добавляем день, если текущее время уже прошло
     }
@@ -141,7 +139,7 @@ async function addMedicineToNotion(medicineData) {
   if (breakfastTime) {
     dateProperties['Завтрак'] = {
       date: {
-        start: addTimeForNextDay('09:00'),  // Завтрак в 09:00
+        start: addTimeForNextDay(breakfastTime),  // Используем переданное время завтрака
       },
     };
   }
@@ -149,7 +147,7 @@ async function addMedicineToNotion(medicineData) {
   if (lunchTime) {
     dateProperties['Обед'] = {
       date: {
-        start: addTimeForNextDay('13:00'),  // Обед в 13:00
+        start: addTimeForNextDay(lunchTime),  // Используем переданное время обеда
       },
     };
   }
@@ -157,7 +155,7 @@ async function addMedicineToNotion(medicineData) {
   if (dinnerTime) {
     dateProperties['Ужин'] = {
       date: {
-        start: addTimeForNextDay('19:00'),  // Ужин в 19:00
+        start: addTimeForNextDay(dinnerTime),  // Используем переданное время ужина
       },
     };
   }
@@ -210,7 +208,6 @@ async function addMedicineToNotion(medicineData) {
     throw error;
   }
 }
-
 
 module.exports = {
   getMedicinesFromNotion,

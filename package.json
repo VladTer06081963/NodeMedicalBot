@@ -2,7 +2,7 @@
   "name": "nodemedicalbot",
   "version": "1.0.0",
   "description": "bot for medical",
-  "main": "index.js",
+  "main": "bot.js",
   "scripts": {
     "dev": "nodemon bot.js",
     "start": "node bot.js"

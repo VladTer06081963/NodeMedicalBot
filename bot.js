@@ -43,5 +43,7 @@ async function startServer() {
 }
 
 // module.exports = bot;  // Экспортируем бот
-module.exports = { bot, telegram: bot.telegram };
+
 startServer();
+// Экспортируем экземпляр бота
+module.exports = bot;
